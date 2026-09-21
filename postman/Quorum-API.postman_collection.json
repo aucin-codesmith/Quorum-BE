@@ -1,0 +1,2312 @@
+{
+  "info": {
+    "name": "QUORUM API",
+    "description": "REST API for QUORUM, the meeting room reservation system.\n\n**Getting started**\n1. `docker compose up --build` (API on http://localhost:3000, demo data is seeded).\n2. Import this collection and the `QUORUM Local` environment.\n3. Run **Auth → Login (admin)** and **Auth → Login (employee)**. Tokens are stored automatically in `adminToken` / `employeeToken`.\n4. Or run the whole collection (Runner / newman): it is ordered so every request has what it needs.\n\n**Demo accounts** (password `Password123!`): `admin@company.com` (administrator), `alya.ramadhani@company.com` (employee).\n\n**Conventions**\n- JSON in, JSON out. Successes: `{ \"data\": ..., \"meta\": { page, limit, total, totalPages } }` (`meta` on lists only).\n- Errors always: `{ \"error\": { \"status\", \"code\", \"message\", \"details\"? } }`. Branch on `code`, show `message`.\n- Private endpoints need `Authorization: Bearer <token>`. Times are `HH:MM` (24h), dates `YYYY-MM-DD`, ids are UUIDs.\n- Status codes: 200/201/204 success, 400 validation, 401 not authenticated, 403 not allowed, 404 not found, 409 conflict, 429 rate limited, 500 server error.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000"
+    },
+    {
+      "key": "adminEmail",
+      "value": "admin@company.com"
+    },
+    {
+      "key": "employeeEmail",
+      "value": "alya.ramadhani@company.com"
+    },
+    {
+      "key": "password",
+      "value": "Password123!"
+    },
+    {
+      "key": "registeredUserId",
+      "value": ""
+    },
+    {
+      "key": "adminToken",
+      "value": ""
+    },
+    {
+      "key": "employeeToken",
+      "value": ""
+    },
+    {
+      "key": "harborId",
+      "value": ""
+    },
+    {
+      "key": "meridianId",
+      "value": ""
+    },
+    {
+      "key": "anchorId",
+      "value": ""
+    },
+    {
+      "key": "newRoomId",
+      "value": ""
+    },
+    {
+      "key": "newUserId",
+      "value": ""
+    },
+    {
+      "key": "reservationId",
+      "value": ""
+    },
+    {
+      "key": "otherReservationId",
+      "value": ""
+    },
+    {
+      "key": "employeeUserId",
+      "value": ""
+    },
+    {
+      "key": "runEmail",
+      "value": ""
+    },
+    {
+      "key": "bookingDate",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "description": "Liveness and database connectivity. Public.",
+      "item": [
+        {
+          "name": "Health check",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"database reachable\", () => pm.expect(pm.response.json().status).to.eql(\"ok\"));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": {
+              "type": "noauth"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "health"
+              ],
+              "query": []
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Auth",
+      "description": "Public: register and login. Private: me.",
+      "item": [
+        {
+          "name": "Register",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set(\"runEmail\", \"postman.\" + Date.now() + \"@example.com\");"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"201\", () => pm.response.to.have.status(201));",
+                  "const d = pm.response.json().data;",
+                  "pm.collectionVariables.set(\"registeredUserId\", d.user.id);",
+                  "pm.test(\"returns a token and the user, never a password\", () => {",
+                  "  pm.expect(d.token).to.be.a(\"string\");",
+                  "  pm.expect(d.user.role).to.eql(\"employee\");",
+                  "  pm.expect(JSON.stringify(d)).to.not.include(\"assword\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Postman Tester\",\n  \"email\": \"{{runEmail}}\",\n  \"password\": \"Sup3rSecret\",\n  \"jobTitle\": \"QA\",\n  \"department\": \"Engineering\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/register",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "register"
+              ],
+              "query": []
+            },
+            "description": "Public sign-up. Always creates an **employee** (a `role` in the body is ignored). Password: 8-72 chars with a letter and a number. Email is stored lower-case.\n\nErrors: `400 VALIDATION_ERROR`, `409 EMAIL_TAKEN`, `429 RATE_LIMITED`."
+          }
+        },
+        {
+          "name": "Register: duplicate email (409)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"409\", () => pm.response.to.have.status(409));",
+                  "pm.test(\"error code is EMAIL_TAKEN\", () => pm.expect(pm.response.json().error.code).to.eql(\"EMAIL_TAKEN\"));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Postman Tester\",\n  \"email\": \"{{runEmail}}\",\n  \"password\": \"Sup3rSecret\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/register",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "register"
+              ],
+              "query": []
+            }
+          }
+        },
+        {
+          "name": "Register: validation errors (400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"400\", () => pm.response.to.have.status(400));",
+                  "pm.test(\"error code is VALIDATION_ERROR\", () => pm.expect(pm.response.json().error.code).to.eql(\"VALIDATION_ERROR\"));",
+                  "pm.test(\"every bad field is reported\", () => pm.expect([...new Set(pm.response.json().error.details.map(d => d.field))]).to.have.members([\"name\", \"email\", \"password\"]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"x\",\n  \"email\": \"not-an-email\",\n  \"password\": \"short\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/register",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "register"
+              ],
+              "query": []
+            },
+            "description": "`error.details` lists every failing rule: `[{ location, field, message }]`. A field can appear more than once when it breaks several rules (e.g. a password that is too short and has no number)."
+          }
+        },
+        {
+          "name": "Login (admin)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.response.to.have.status(200));",
+                  "const d = pm.response.json().data;",
+                  "pm.collectionVariables.set(\"adminToken\", d.token);",
+                  "pm.test(\"is an administrator\", () => pm.expect(d.user.role).to.eql(\"admin\"));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{adminEmail}}\",\n  \"password\": \"{{password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "login"
+              ],
+              "query": []
+            },
+            "description": "Returns `{ token, tokenType: \"Bearer\", expiresIn, user }`. Saved to `adminToken`.\n\nErrors: `401 INVALID_CREDENTIALS` (same answer for a wrong password and an unknown email), `403 ACCOUNT_INACTIVE`."
+          }
+        },
+        {
+          "name": "Login (employee)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.response.to.have.status(200));",
+                  "const d = pm.response.json().data;",
+                  "pm.collectionVariables.set(\"employeeToken\", d.token);",
+                  "pm.collectionVariables.set(\"employeeUserId\", d.user.id);",
+                  "pm.test(\"is an employee\", () => pm.expect(d.user.role).to.eql(\"employee\"));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{employeeEmail}}\",\n  \"password\": \"{{password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "login"
+              ],
+              "query": []
+            },
+            "description": "Saved to `employeeToken`."
+          }
+        },
+        {
+          "name": "Login: wrong password (401)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"401\", () => pm.response.to.have.status(401));",
+                  "pm.test(\"error code is INVALID_CREDENTIALS\", () => pm.expect(pm.response.json().error.code).to.eql(\"INVALID_CREDENTIALS\"));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{employeeEmail}}\",\n  \"password\": \"WrongPass1\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "login"
+              ],
+              "query": []
+            }
+          }
+        },
+        {
+          "name": "Login: inactive account (403)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"403\", () => pm.response.to.have.status(403));",
+                  "pm.test(\"error code is ACCOUNT_INACTIVE\", () => pm.expect(pm.response.json().error.code).to.eql(\"ACCOUNT_INACTIVE\"));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"farhan.malik@company.com\",\n  \"password\": \"{{password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "login"
+              ],
+              "query": []
+            }
+          }
+        },
+        {
+          "name": "Me",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"returns the signed-in user\", () => pm.expect(pm.response.json().data.email).to.eql(pm.collectionVariables.get(\"employeeEmail\")));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{employeeToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "me"
+              ],
+              "query": []
+            },
+            "description": "Profile of the token's owner. `401 UNAUTHORIZED | INVALID_TOKEN | TOKEN_EXPIRED` without a valid token."
+          }
+        },
+        {
+          "name": "Me: no token (401)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"401\", () => pm.response.to.have.status(401));",
+                  "pm.test(\"error code is UNAUTHORIZED\", () => pm.expect(pm.response.json().error.code).to.eql(\"UNAUTHORIZED\"));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": {
+              "type": "noauth"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "me"
+              ],
+              "query": []
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Rooms",
+      "description": "Any signed-in user can read. Only administrators can create, edit and delete.",
+      "item": [
+        {
+          "name": "List rooms",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test(\"has pagination meta\", () => pm.expect(j.meta).to.have.keys([\"page\", \"limit\", \"total\", \"totalPages\"]));",
+                  "const byName = (n) => (j.data.find(r => r.name === n) || {}).id;",
+                  "pm.collectionVariables.set(\"harborId\", byName(\"Harbor\"));",
+                  "pm.collectionVariables.set(\"meridianId\", byName(\"Meridian\"));",
+                  "pm.collectionVariables.set(\"anchorId\", byName(\"Anchor\"));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{employeeToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/rooms?limit=100&page=1",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "rooms"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "100",
+                  "disabled": false
+                },
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": "1-based",
+                  "disabled": false
+                },
+                {
+                  "key": "q",
+                  "value": "",
+                  "description": "search name or floor",
+                  "disabled": true
+                },
+                {
+                  "key": "status",
+                  "value": "available",
+                  "description": "available | occupied | maintenance",
+                  "disabled": true
+                },
+                {
+                  "key": "minCapacity",
+                  "value": "8",
+                  "description": "minimum seats",
+                  "disabled": true
+                },
+                {
+                  "key": "facilities",
+                  "value": "Whiteboard,Video%20Conferencing",
+                  "description": "comma-separated; room must have all",
+                  "disabled": true
+                },
+                {
+                  "key": "sort",
+                  "value": "name",
+                  "description": "name | capacity | floor | status | createdAt; prefix - for descending",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Paginated. Each room includes `upcomingReservations`."
+          }
+        },
+        {
+          "name": "Get room",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"is Harbor\", () => pm.expect(pm.response.json().data.name).to.eql(\"Harbor\"));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{employeeToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/rooms/{{harborId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "rooms",
+                "{{harborId}}"
+              ],
+              "query": []
+            }
+          }
+        },
+        {
+          "name": "Room schedule",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"lists slots\", () => pm.expect(pm.response.json().data.reservations).to.be.an(\"array\"));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{employeeToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/rooms/{{meridianId}}/schedule",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "rooms",
+                "{{meridianId}}",
+                "schedule"
+              ],
+              "query": [
+                {
+                  "key": "date",
+                  "value": "",
+                  "description": "YYYY-MM-DD, defaults to today",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Booked (non-cancelled) slots for one day."
+          }
+        },
+        {
+          "name": "Get room: not a UUID (400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"400\", () => pm.response.to.have.status(400));",
+                  "pm.test(\"error code is VALIDATION_ERROR\", () => pm.expect(pm.response.json().error.code).to.eql(\"VALIDATION_ERROR\"));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{employeeToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/rooms/123",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "rooms",
+                "123"
+              ],
+              "query": []
+            }
+          }
+        },
+        {
+          "name": "Facilities catalogue",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{employeeToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/facilities",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "facilities"
+              ],
+              "query": []
+            },
+            "description": "The fixed list of facility names a room can have."
+          }
+        },
+        {
+          "name": "Create room (admin)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"201\", () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set(\"newRoomId\", pm.response.json().data.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Postman Room {{$timestamp}}\",\n  \"floor\": \"Floor 2, East Wing\",\n  \"capacity\": 6,\n  \"facilities\": [\n    \"Whiteboard\",\n    \"Video Conferencing\"\n  ],\n  \"description\": \"Created from Postman.\",\n  \"status\": \"available\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/rooms",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "rooms"
+              ],
+              "query": []
+            },
+            "description": "`image` is optional (full URL). Errors: `400`, `403 FORBIDDEN` for employees, `409 ROOM_NAME_TAKEN`."
+          }
+        },
+        {
+          "name": "Create room: forbidden for employees (403)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"403\", () => pm.response.to.have.status(403));",
+                  "pm.test(\"error code is FORBIDDEN\", () => pm.expect(pm.response.json().error.code).to.eql(\"FORBIDDEN\"));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{employeeToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Nope\",\n  \"floor\": \"F1\",\n  \"capacity\": 4\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/rooms",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "rooms"
+              ],
+              "query": []
+            }
+          }
+        },
+        {
+          "name": "Update room (admin)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"changed, others untouched\", () => { const r = pm.response.json().data; pm.expect(r.capacity).to.eql(8); pm.expect(r.status).to.eql(\"maintenance\"); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"capacity\": 8,\n  \"status\": \"maintenance\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/rooms/{{newRoomId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "rooms",
+                "{{newRoomId}}"
+              ],
+              "query": []
+            },
+            "description": "Send only the fields you want to change; at least one is required."
+          }
+        },
+        {
+          "name": "Delete room (admin)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"204\", () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/rooms/{{newRoomId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "rooms",
+                "{{newRoomId}}"
+              ],
+              "query": []
+            },
+            "description": "`204` on success. `409 ROOM_HAS_RESERVATIONS` while reservations reference the room: set it to `maintenance` instead."
+          }
+        },
+        {
+          "name": "Delete room with reservations (409)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"409\", () => pm.response.to.have.status(409));",
+                  "pm.test(\"error code is ROOM_HAS_RESERVATIONS\", () => pm.expect(pm.response.json().error.code).to.eql(\"ROOM_HAS_RESERVATIONS\"));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/rooms/{{meridianId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "rooms",
+                "{{meridianId}}"
+              ],
+              "query": []
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Users",
+      "description": "Administrator only.",
+      "item": [
+        {
+          "name": "List users",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"never exposes password hashes\", () => pm.expect(pm.response.text()).to.not.include(\"passwordHash\"));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/users?limit=20&page=1",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "users"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "20",
+                  "disabled": false
+                },
+                {
+                  "key": "page",
+                  "value": "1",
+                  "disabled": false
+                },
+                {
+                  "key": "q",
+                  "value": "",
+                  "description": "search name, email or department",
+                  "disabled": true
+                },
+                {
+                  "key": "role",
+                  "value": "admin",
+                  "description": "employee | admin",
+                  "disabled": true
+                },
+                {
+                  "key": "status",
+                  "value": "active",
+                  "description": "active | inactive",
+                  "disabled": true
+                },
+                {
+                  "key": "sort",
+                  "value": "name",
+                  "description": "name | email | role | status | createdAt",
+                  "disabled": true
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "List users: forbidden for employees (403)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"403\", () => pm.response.to.have.status(403));",
+                  "pm.test(\"error code is FORBIDDEN\", () => pm.expect(pm.response.json().error.code).to.eql(\"FORBIDDEN\"));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{employeeToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/users",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "users"
+              ],
+              "query": []
+            }
+          }
+        },
+        {
+          "name": "Create user",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set(\"runEmail\", \"made.\" + Date.now() + \"@example.com\");"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"201\", () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set(\"newUserId\", pm.response.json().data.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Created By Admin\",\n  \"email\": \"{{runEmail}}\",\n  \"password\": \"Sup3rSecret\",\n  \"role\": \"employee\",\n  \"status\": \"active\",\n  \"jobTitle\": \"Analyst\",\n  \"department\": \"Finance\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/users",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "users"
+              ],
+              "query": []
+            },
+            "description": "Unlike public registration, an admin can set `role` and `status`. `409 EMAIL_TAKEN` on a duplicate."
+          }
+        },
+        {
+          "name": "Get user",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/users/{{newUserId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "users",
+                "{{newUserId}}"
+              ],
+              "query": []
+            }
+          }
+        },
+        {
+          "name": "Update user",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"updated\", () => pm.expect(pm.response.json().data.status).to.eql(\"inactive\"));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jobTitle\": \"Senior Analyst\",\n  \"status\": \"inactive\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/users/{{newUserId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "users",
+                "{{newUserId}}"
+              ],
+              "query": []
+            },
+            "description": "Omitted fields keep their value; `password` is optional. An admin cannot change their **own** role or status (`403`)."
+          }
+        },
+        {
+          "name": "Delete user",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"204\", () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/users/{{newUserId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "users",
+                "{{newUserId}}"
+              ],
+              "query": []
+            },
+            "description": "`204`. `409 USER_HAS_RESERVATIONS`: deactivate instead. `403` when deleting yourself."
+          }
+        },
+        {
+          "name": "Delete the user created by Register (cleanup)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"204\", () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/users/{{registeredUserId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "users",
+                "{{registeredUserId}}"
+              ],
+              "query": []
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Reservations",
+      "description": "Employees see and manage their own; administrators see and manage all.",
+      "item": [
+        {
+          "name": "Create reservation (employee)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const d = new Date(); d.setDate(d.getDate() + 7);",
+                  "pm.collectionVariables.set(\"bookingDate\", d.toISOString().slice(0, 10));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"201\", () => pm.response.to.have.status(201));",
+                  "const r = pm.response.json().data;",
+                  "pm.collectionVariables.set(\"reservationId\", r.id);",
+                  "pm.test(\"joined room and user\", () => { pm.expect(r.room.name).to.eql(\"Harbor\"); pm.expect(r.startTime).to.eql(\"10:00\"); pm.expect(r.status).to.eql(\"upcoming\"); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{employeeToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"roomId\": \"{{harborId}}\",\n  \"title\": \"Design review\",\n  \"description\": \"Walk through the new flow.\",\n  \"date\": \"{{bookingDate}}\",\n  \"startTime\": \"10:00\",\n  \"endTime\": \"11:00\",\n  \"participants\": 4\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/reservations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "reservations"
+              ],
+              "query": []
+            },
+            "description": "Books for the signed-in user. Rules: room must be `available`; participants ≤ capacity; within working hours (08:00-18:00); not in the past; no overlap with another non-cancelled booking of that room (back-to-back is fine).\n\nAdmins may add `userId` to book on someone's behalf (employees get `403`).\n\nErrors: `400 VALIDATION_ERROR`, `404 NOT_FOUND`, `409 RESERVATION_CONFLICT` (with `details.conflictingReservation`), `409 ROOM_UNAVAILABLE`, `409 USER_INACTIVE`."
+          }
+        },
+        {
+          "name": "Create reservation: time conflict (409)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"409\", () => pm.response.to.have.status(409));",
+                  "pm.test(\"error code is RESERVATION_CONFLICT\", () => pm.expect(pm.response.json().error.code).to.eql(\"RESERVATION_CONFLICT\"));",
+                  "pm.test(\"names the clash\", () => pm.expect(pm.response.json().error.details.conflictingReservation.id).to.eql(pm.collectionVariables.get(\"reservationId\")));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{employeeToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"roomId\": \"{{harborId}}\",\n  \"title\": \"Clashing meeting\",\n  \"date\": \"{{bookingDate}}\",\n  \"startTime\": \"10:30\",\n  \"endTime\": \"11:30\",\n  \"participants\": 3\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/reservations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "reservations"
+              ],
+              "query": []
+            }
+          }
+        },
+        {
+          "name": "Create reservation: room under maintenance (409)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"409\", () => pm.response.to.have.status(409));",
+                  "pm.test(\"error code is ROOM_UNAVAILABLE\", () => pm.expect(pm.response.json().error.code).to.eql(\"ROOM_UNAVAILABLE\"));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{employeeToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"roomId\": \"{{anchorId}}\",\n  \"title\": \"Interview\",\n  \"date\": \"{{bookingDate}}\",\n  \"startTime\": \"10:00\",\n  \"endTime\": \"11:00\",\n  \"participants\": 2\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/reservations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "reservations"
+              ],
+              "query": []
+            }
+          }
+        },
+        {
+          "name": "Create reservation: validation (400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"400\", () => pm.response.to.have.status(400));",
+                  "pm.test(\"error code is VALIDATION_ERROR\", () => pm.expect(pm.response.json().error.code).to.eql(\"VALIDATION_ERROR\"));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{employeeToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"roomId\": \"{{harborId}}\",\n  \"title\": \"Too early\",\n  \"date\": \"{{bookingDate}}\",\n  \"startTime\": \"06:00\",\n  \"endTime\": \"07:00\",\n  \"participants\": 50\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/reservations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "reservations"
+              ],
+              "query": []
+            }
+          }
+        },
+        {
+          "name": "List my reservations",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"only mine\", () => pm.expect(pm.response.json().data.every(r => r.user.id === pm.collectionVariables.get(\"employeeUserId\"))).to.be.true);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{employeeToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/reservations?limit=20&page=1",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "reservations"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "20",
+                  "disabled": false
+                },
+                {
+                  "key": "page",
+                  "value": "1",
+                  "disabled": false
+                },
+                {
+                  "key": "status",
+                  "value": "upcoming",
+                  "description": "upcoming | completed | cancelled",
+                  "disabled": true
+                },
+                {
+                  "key": "roomId",
+                  "value": "",
+                  "description": "room UUID",
+                  "disabled": true
+                },
+                {
+                  "key": "date",
+                  "value": "",
+                  "description": "exact day, YYYY-MM-DD",
+                  "disabled": true
+                },
+                {
+                  "key": "from",
+                  "value": "",
+                  "description": "range start, YYYY-MM-DD",
+                  "disabled": true
+                },
+                {
+                  "key": "to",
+                  "value": "",
+                  "description": "range end, YYYY-MM-DD",
+                  "disabled": true
+                },
+                {
+                  "key": "q",
+                  "value": "",
+                  "description": "search title, room or person",
+                  "disabled": true
+                },
+                {
+                  "key": "sort",
+                  "value": "-date",
+                  "description": "date | startTime | createdAt | title | status; prefix - for descending",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Employees are always scoped to their own reservations."
+          }
+        },
+        {
+          "name": "Get reservation",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{employeeToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/reservations/{{reservationId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "reservations",
+                "{{reservationId}}"
+              ],
+              "query": []
+            },
+            "description": "`404` also when it belongs to someone else (existence is not leaked)."
+          }
+        },
+        {
+          "name": "Update reservation (owner)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"moved\", () => pm.expect(pm.response.json().data.startTime).to.eql(\"13:00\"));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{employeeToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Design review (moved)\",\n  \"startTime\": \"13:00\",\n  \"endTime\": \"14:00\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/reservations/{{reservationId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "reservations",
+                "{{reservationId}}"
+              ],
+              "query": []
+            },
+            "description": "Edit an **upcoming** reservation; omitted fields keep their value. Moving it re-runs the booking rules. `409 RESERVATION_LOCKED` once completed or cancelled."
+          }
+        },
+        {
+          "name": "Complete: forbidden for employees (403)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"403\", () => pm.response.to.have.status(403));",
+                  "pm.test(\"error code is INVALID_STATUS_TRANSITION\", () => pm.expect(pm.response.json().error.code).to.eql(\"INVALID_STATUS_TRANSITION\"));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{employeeToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"completed\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/reservations/{{reservationId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "reservations",
+                "{{reservationId}}"
+              ],
+              "query": []
+            },
+            "description": "Status changes travel alone. Owners can only cancel; only admins can mark a booking completed."
+          }
+        },
+        {
+          "name": "Cancel reservation",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"cancelled\", () => pm.expect(pm.response.json().data.status).to.eql(\"cancelled\"));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{employeeToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"cancelled\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/reservations/{{reservationId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "reservations",
+                "{{reservationId}}"
+              ],
+              "query": []
+            }
+          }
+        },
+        {
+          "name": "Book on behalf of a user (admin)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"201\", () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set(\"otherReservationId\", pm.response.json().data.id);",
+                  "pm.test(\"owned by the employee\", () => pm.expect(pm.response.json().data.user.id).to.eql(pm.collectionVariables.get(\"employeeUserId\")));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{employeeUserId}}\",\n  \"roomId\": \"{{harborId}}\",\n  \"title\": \"Booked by facilities\",\n  \"date\": \"{{bookingDate}}\",\n  \"startTime\": \"10:00\",\n  \"endTime\": \"11:00\",\n  \"participants\": 3\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/reservations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "reservations"
+              ],
+              "query": []
+            },
+            "description": "The slot cancelled above is free again."
+          }
+        },
+        {
+          "name": "List all reservations (admin)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"sees more than one person's bookings\", () => pm.expect(new Set(pm.response.json().data.map(r => r.user.id)).size).to.be.above(1));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/reservations?limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "reservations"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "20",
+                  "disabled": false
+                },
+                {
+                  "key": "userId",
+                  "value": "",
+                  "description": "filter by user (admin only)",
+                  "disabled": true
+                },
+                {
+                  "key": "status",
+                  "value": "upcoming",
+                  "description": "",
+                  "disabled": true
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Complete reservation (admin)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"completed\", () => pm.expect(pm.response.json().data.status).to.eql(\"completed\"));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"completed\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/reservations/{{otherReservationId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "reservations",
+                "{{otherReservationId}}"
+              ],
+              "query": []
+            }
+          }
+        },
+        {
+          "name": "Delete reservation: forbidden for employees (403)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"403\", () => pm.response.to.have.status(403));",
+                  "pm.test(\"error code is FORBIDDEN\", () => pm.expect(pm.response.json().error.code).to.eql(\"FORBIDDEN\"));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{employeeToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/reservations/{{reservationId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "reservations",
+                "{{reservationId}}"
+              ],
+              "query": []
+            }
+          }
+        },
+        {
+          "name": "Delete reservation (admin)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"204\", () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/reservations/{{reservationId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "reservations",
+                "{{reservationId}}"
+              ],
+              "query": []
+            },
+            "description": "Removes the record (`204`). Employees cancel via `PUT { \"status\": \"cancelled\" }` instead."
+          }
+        },
+        {
+          "name": "Delete reservation (admin), cleanup",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"204\", () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/reservations/{{otherReservationId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "reservations",
+                "{{otherReservationId}}"
+              ],
+              "query": []
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Stats",
+      "description": "Administrator monitoring.",
+      "item": [
+        {
+          "name": "Overview",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"has the sections\", () => pm.expect(pm.response.json().data).to.include.keys([\"rooms\", \"reservations\", \"users\", \"roomUtilization\"]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/stats/overview",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "stats",
+                "overview"
+              ],
+              "query": []
+            },
+            "description": "Counts for rooms, reservations (including today's) and users, plus today's booked share of working hours per room."
+          }
+        }
+      ]
+    }
+  ]
+}
