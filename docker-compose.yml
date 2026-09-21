@@ -1,0 +1,52 @@
+# Start everything with:  docker compose up --build
+# API:        http://localhost:3000   (health: /health)
+# PostgreSQL: localhost:5433          (user/password/db come from .env, see .env.example)
+#
+# Every value below has a development default, so `docker compose up` works without a .env file.
+# For a real deployment set NODE_ENV=production and a strong JWT_SECRET (and turn SEED_ON_START off).
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-quorum}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-quorum_dev_password}
+      POSTGRES_DB: ${POSTGRES_DB:-quorum}
+    ports:
+      # Bound to localhost only; 5433 avoids clashing with a PostgreSQL already running on 5432.
+      - "127.0.0.1:${DB_PORT:-5433}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "${PORT:-3000}:3000"
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 3000
+      DATABASE_URL: postgres://${POSTGRES_USER:-quorum}:${POSTGRES_PASSWORD:-quorum_dev_password}@db:5432/${POSTGRES_DB:-quorum}
+      JWT_SECRET: ${JWT_SECRET:-change-me-to-a-long-random-string-before-deploying}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1d}
+      BCRYPT_ROUNDS: ${BCRYPT_ROUNDS:-10}
+      AUTH_RATE_LIMIT: ${AUTH_RATE_LIMIT:-100}
+      TRUST_PROXY: ${TRUST_PROXY:-0}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:5173,http://localhost:5199}
+      APP_TIMEZONE: ${APP_TIMEZONE:-Asia/Jakarta}
+      WORK_START: ${WORK_START:-08:00}
+      WORK_END: ${WORK_END:-18:00}
+      SEED_ON_START: ${SEED_ON_START:-true}
+      SEED_PASSWORD: ${SEED_PASSWORD:-Password123!}
+
+volumes:
+  pgdata:
