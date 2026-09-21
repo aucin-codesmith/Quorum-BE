@@ -113,7 +113,7 @@ export async function listReservations(req, res) {
   const [rows, [{ total }]] = await Promise.all([
     joined()
       .where(where)
-      .orderBy(...orderBy(query.sort, SORT_COLUMNS, reservations.id))
+      .orderBy(...orderBy(query.sort, SORT_COLUMNS, [reservations.startTime, reservations.id]))
       .limit(query.limit)
       .offset(offsetOf(query)),
     db

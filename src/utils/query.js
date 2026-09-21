@@ -2,11 +2,12 @@ import { and, asc, desc } from "drizzle-orm";
 import { pageMeta } from "./pagination.js";
 
 // "-date" → date DESC, "date" → date ASC. `columns` maps whitelisted sort keys to columns.
-export function orderBy(sort, columns, tieBreaker) {
-  const descending = sort.startsWith("-");
-  const column = columns[sort.replace(/^-/, "")];
-  const dir = descending ? desc : asc;
-  return tieBreaker ? [dir(column), asc(tieBreaker)] : [dir(column)];
+// `tieBreakers` (a column or a list) keep pagination stable and follow the same direction,
+// e.g. reservations sorted by date also order by start time within a day.
+export function orderBy(sort, columns, tieBreakers = []) {
+  const dir = sort.startsWith("-") ? desc : asc;
+  const extra = [tieBreakers].flat().map((c) => dir(c));
+  return [dir(columns[sort.replace(/^-/, "")]), ...extra];
 }
 
 // Escape LIKE wildcards so user input is matched literally.
